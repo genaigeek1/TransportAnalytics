@@ -67,9 +67,9 @@ pip install google-cloud-aiplatform kfp pandas scikit-learn
 
 4. **Download datasets from Kaggle and upload to GCS (required before feature engineering):**
 ```bash
-python data_ingestion/download_kaggle_and_upload_gcs.py \
-  --username YOUR_KAGGLE_USERNAME \
-  --key YOUR_KAGGLE_API_KEY
+export KAGGLE_USERNAME=you_kaggle_udername
+export KAGGLE_KEY=your_kaggle_key
+python data_ingestion/download_kaggle_and_upload_gcs.py
 ```
 **Note:** This step is mandatory before running the feature engineering script.
 
