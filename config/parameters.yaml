@@ -1,0 +1,14 @@
+bucket_name: mta-ridership-data
+model:
+  classifier:
+    max_depth: 8
+    n_estimators: 100
+  regressor:
+    max_depth: 10
+    n_estimators: 100
+pipeline_name: ridership-mode-pipeline
+project_id: gps-ax-lakehouse
+region: us-central1
+split:
+  random_state: 42
+  test_size: 0.2
