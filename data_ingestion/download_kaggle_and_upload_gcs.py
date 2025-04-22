@@ -3,21 +3,19 @@ import os
 import argparse
 from kaggle.api.kaggle_api_extended import KaggleApi
 from google.cloud import storage
-import zipfile
-import io
 
 # CLI arguments
-parser = argparse.ArgumentParser(description="Stream Kaggle datasets directly to GCS.")
+parser = argparse.ArgumentParser(description="Download Kaggle dataset files individually and upload to GCS.")
 parser.add_argument("--project_id", default="gps-ax-lakehouse", help="GCP Project ID")
 parser.add_argument("--bucket_name", default="mta-ridership-data", help="GCS Bucket name")
 args = parser.parse_args()
 
-# Kaggle credentials from environment
+# Set Kaggle credentials
 kaggle_username = os.getenv("KAGGLE_USERNAME")
 kaggle_key = os.getenv("KAGGLE_KEY")
 
 if not kaggle_username or not kaggle_key:
-    raise ValueError("❌ Set KAGGLE_USERNAME and KAGGLE_KEY in environment.")
+    raise ValueError("❌ KAGGLE_USERNAME and KAGGLE_KEY must be set as environment variables.")
 
 os.environ["KAGGLE_USERNAME"] = kaggle_username
 os.environ["KAGGLE_KEY"] = kaggle_key
@@ -27,13 +25,13 @@ api = KaggleApi()
 api.authenticate()
 print(f"✅ Authenticated as {kaggle_username}")
 
-# Datasets
+# Datasets to process
 datasets = {
     "mta": "princehobby/metropolitan-transportation-authority-mta-datasets",
-    "mode": "soumyadiptadas/multimodal-transport-dataset"
+    "mode": "merdelic/dataset-for-multimodal-transport-analytics"
 }
 
-# GCS setup
+# Initialize GCS client
 storage_client = storage.Client(project=args.project_id)
 bucket = storage_client.bucket(args.bucket_name)
 
@@ -42,15 +40,21 @@ if not bucket.exists():
     bucket = storage_client.create_bucket(args.bucket_name, location="us-central1")
     print(f"✅ Created bucket: {args.bucket_name}")
 
-# Download and stream-upload datasets
-for prefix, dataset in datasets.items():
-    print(f"⬇️ Downloading dataset: {dataset}")
-    data = api.dataset_download_files(dataset, path=None, unzip=False)
-    with zipfile.ZipFile(io.BytesIO(data.content)) as archive:
-        for name in archive.namelist():
-            if name.endswith(".csv"):
-                print(f"☁️ Uploading {name} to GCS as raw/{prefix}_{name}")
-                blob = bucket.blob(f"raw/{prefix}_{os.path.basename(name)}")
-                with archive.open(name) as f:
-                    blob.upload_from_file(f, rewind=True)
-print("✅ All files streamed to GCS successfully.")
+# Process each dataset
+for prefix, dataset_slug in datasets.items():
+    print(f"🔍 Listing files for {dataset_slug}...")
+    files = api.dataset_list_files(dataset_slug).files
+
+    for file_info in files:
+        file_name = file_info.name
+        if file_name.endswith(".csv"):
+            local_path = f"/tmp/{file_name}"
+            print(f"⬇️ Downloading {file_name} from Kaggle...")
+            api.dataset_download_file(dataset_slug, file_name, path="/tmp", force=True)
+            blob_path = f"raw/{prefix}_{os.path.basename(file_name)}"
+            print(f"☁️ Uploading {file_name} to gs://{args.bucket_name}/{blob_path}")
+            blob = bucket.blob(blob_path)
+            blob.upload_from_filename(local_path)
+            os.remove(local_path)
+
+print("✅ All eligible CSV files have been downloaded and streamed to GCS.")
