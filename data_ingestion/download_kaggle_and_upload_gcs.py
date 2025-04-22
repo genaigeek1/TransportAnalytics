@@ -3,55 +3,54 @@ import os
 import argparse
 from kaggle.api.kaggle_api_extended import KaggleApi
 from google.cloud import storage
+import zipfile
+import io
 
 # CLI arguments
-parser = argparse.ArgumentParser(description="Download two Kaggle datasets and upload to GCS.")
+parser = argparse.ArgumentParser(description="Stream Kaggle datasets directly to GCS.")
 parser.add_argument("--project_id", default="gps-ax-lakehouse", help="GCP Project ID")
 parser.add_argument("--bucket_name", default="mta-ridership-data", help="GCS Bucket name")
-parser.add_argument("--download_dir", default="mta_data", help="Local base folder to store downloaded files")
 args = parser.parse_args()
 
-# Set credentials from environment
+# Kaggle credentials from environment
 kaggle_username = os.getenv("KAGGLE_USERNAME")
 kaggle_key = os.getenv("KAGGLE_KEY")
 
 if not kaggle_username or not kaggle_key:
-    raise ValueError("❌ Environment variables KAGGLE_USERNAME and KAGGLE_KEY must be set.")
+    raise ValueError("❌ Set KAGGLE_USERNAME and KAGGLE_KEY in environment.")
 
 os.environ["KAGGLE_USERNAME"] = kaggle_username
 os.environ["KAGGLE_KEY"] = kaggle_key
 
-# Authenticate with Kaggle API
+# Authenticate
 api = KaggleApi()
 api.authenticate()
-print(f"✅ Authenticated with Kaggle as {kaggle_username}")
+print(f"✅ Authenticated as {kaggle_username}")
 
-# Dataset slugs
+# Datasets
 datasets = {
     "mta": "princehobby/metropolitan-transportation-authority-mta-datasets",
-    "mode": "merdelic/dataset-for-multimodal-transport-analytics"
+    "mode": "soumyadiptadas/multimodal-transport-dataset"
 }
 
-# Download datasets
-for name, slug in datasets.items():
-    local_path = os.path.join(args.download_dir, name)
-    os.makedirs(local_path, exist_ok=True)
-    api.dataset_download_files(slug, path=local_path, unzip=True)
-    print(f"✅ Downloaded {name.upper()} dataset to {local_path}")
-
-# Upload to GCS
-client = storage.Client(project=args.project_id)
-bucket = client.bucket(args.bucket_name)
+# GCS setup
+storage_client = storage.Client(project=args.project_id)
+bucket = storage_client.bucket(args.bucket_name)
 
 if not bucket.exists():
-    print(f"⚠️ Bucket {args.bucket_name} does not exist. Creating it...")
-    bucket = client.create_bucket(args.bucket_name, location="us-central1")
-    print(f"✅ Created bucket: gs://{args.bucket_name}")
+    print(f"⚠️ Bucket {args.bucket_name} does not exist. Creating...")
+    bucket = storage_client.create_bucket(args.bucket_name, location="us-central1")
+    print(f"✅ Created bucket: {args.bucket_name}")
 
-for subfolder in ["mta", "mode"]:
-    sub_path = os.path.join(args.download_dir, subfolder)
-    for file in os.listdir(sub_path):
-        if file.endswith(".csv"):
-            blob = bucket.blob(f"raw/{subfolder}_{file}")
-            blob.upload_from_filename(os.path.join(sub_path, file))
-            print(f"✅ Uploaded {subfolder}_{file} to gs://{args.bucket_name}/raw/")
+# Download and stream-upload datasets
+for prefix, dataset in datasets.items():
+    print(f"⬇️ Downloading dataset: {dataset}")
+    data = api.dataset_download_files(dataset, path=None, unzip=False)
+    with zipfile.ZipFile(io.BytesIO(data.content)) as archive:
+        for name in archive.namelist():
+            if name.endswith(".csv"):
+                print(f"☁️ Uploading {name} to GCS as raw/{prefix}_{name}")
+                blob = bucket.blob(f"raw/{prefix}_{os.path.basename(name)}")
+                with archive.open(name) as f:
+                    blob.upload_from_file(f, rewind=True)
+print("✅ All files streamed to GCS successfully.")
