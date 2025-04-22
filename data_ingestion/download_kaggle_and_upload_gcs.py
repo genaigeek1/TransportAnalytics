@@ -35,6 +35,11 @@ print(f"✅ Downloaded dataset: {args.dataset} to {args.download_dir}")
 client = storage.Client(project=args.project_id)
 bucket = client.bucket(args.bucket_name)
 
+if not bucket.exists():
+    print(f"⚠️ Bucket {args.bucket_name} does not exist. Creating it...")
+    bucket = client.create_bucket(args.bucket_name, location="us-central1")
+    print(f"✅ Created new bucket: gs://{args.bucket_name}")
+
 for file in os.listdir(args.download_dir):
     if file.endswith(".csv"):
         blob = bucket.blob(f"raw/{file}")
