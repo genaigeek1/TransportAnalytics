@@ -50,7 +50,9 @@ git clone https://github.com/YOUR_USERNAME/TransportAnalytics.git
 cd TransportAnalytics
 ```
 
-2. **Create and activate a virtual environment:**
+2. **Create and activate a virtual environment (required in Cloud Shell or locally):**
+> This ensures isolated package installations and avoids permission issues, especially in Google Cloud Shell.
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -63,23 +65,31 @@ pip install -r requirements.txt
 pip install google-cloud-aiplatform kfp pandas scikit-learn
 ```
 
-4. **Run feature engineering:**
+4. **Download datasets from Kaggle and upload to GCS (required before feature engineering):**
+```bash
+python data_ingestion/download_kaggle_and_upload_gcs.py \
+  --username YOUR_KAGGLE_USERNAME \
+  --key YOUR_KAGGLE_API_KEY
+```
+**Note:** This step is mandatory before running the feature engineering script.
+
+5. **Run feature engineering:**
 ```bash
 python preprocessing/feature_engineering.py
 ```
 
-5. **Train models locally (optional):**
+6. **Train models locally (optional):**
 ```bash
 python training/train_ridership_model.py
 python training/train_mode_classifier.py
 ```
 
-6. **Compile and submit Vertex AI pipeline:**
+7. **Compile and submit Vertex AI pipeline:**
 ```bash
 python pipeline/vertex_pipeline.py
 ```
 
-7. **Deploy the pipeline using Python SDK:**
+8. **Deploy the pipeline using Python SDK:**
 ```python
 from google.cloud import aiplatform
 from google.cloud.aiplatform.pipeline_jobs import PipelineJob
