@@ -29,7 +29,7 @@ print(f"✅ Authenticated with Kaggle as {kaggle_username}")
 # Dataset slugs
 datasets = {
     "mta": "princehobby/metropolitan-transportation-authority-mta-datasets",
-    "mode": "soumyadiptadas/multimodal-transport-dataset"
+    "mode": "merdelic/dataset-for-multimodal-transport-analytics"
 }
 
 # Download datasets
