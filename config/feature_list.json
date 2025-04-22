@@ -1,0 +1,10 @@
+{
+  "common_features": [
+    "weather_encoded",
+    "duration",
+    "fare",
+    "fare_per_minute"
+  ],
+  "target_ridership": "ridership",
+  "target_mode": "mode_encoded"
+}

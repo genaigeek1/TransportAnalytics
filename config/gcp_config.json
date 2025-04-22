@@ -1,0 +1,9 @@
+{
+  "project_id": "gps-ax-lakehouse",
+  "region": "us-central1",
+  "bucket": "mta-ridership-data",
+  "bq_dataset": "ridership_analytics",
+  "bq_output_table": "batch_predictions",
+  "gcs_model_path": "models/ridership_model.pkl",
+  "gcs_input_path": "inputs/merged_feature_data.csv"
+}
