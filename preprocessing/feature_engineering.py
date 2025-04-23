@@ -7,52 +7,36 @@ from datetime import datetime
 # Google Cloud Storage details
 gcs_bucket_name = 'mta-ridership-data'  # Replace with your GCS bucket name
 gcs_mta_prefix = 'raw/mta/'          # Prefix for MTA data
-gcs_multimodal_prefix = 'raw/multimodal/' # Prefix for multimodal data
+gcs_multimodal_prefix = 'raw/multimodal/archive/' # Prefix for multimodal archive data
 gcs_processed_blob_name = 'processed/merged_transport_data.csv' # Blob name for final processed data
 
-def read_data_from_gcs(bucket_name, prefix):
-    """Reads all CSV files from a given GCS prefix into a list of DataFrames."""
+def read_csv_from_gcs(bucket_name, blob_name):
+    """Reads a single CSV file from GCS into a DataFrame."""
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blobs = bucket.list_blobs(prefix=prefix)
-    dfs = []
-    for blob in blobs:
-        if blob.name.endswith('.csv'):
-            print(f"Reading data from gs://{bucket_name}/{blob.name}")
-            try:
-                content = blob.download_as_bytes()
-                df = pd.read_csv(io.BytesIO(content))
-                dfs.append(df)
-            except Exception as e:
-                print(f"Error reading {blob.name}: {e}")
-    return dfs
+    blob = bucket.blob(blob_name)
+    try:
+        content = blob.download_as_bytes()
+        df = pd.read_csv(io.BytesIO(content))
+        print(f"✅ Read data from gs://{bucket_name}/{blob_name}")
+        return df
+    except Exception as e:
+        print(f"❌ Error reading {blob_name}: {e}")
+        return None
 
-def read_multimodal_data_from_gcs(bucket_name, prefix):
-    """Reads multimodal data (assuming it might be in a single .txt file) from GCS."""
+def read_txt_from_gcs(bucket_name, blob_name, sep='\t', header=None):
+    """Reads a single TXT file from GCS into a DataFrame."""
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    blobs = bucket.list_blobs(prefix=prefix)
-    dfs = []
-    for blob in blobs:
-        if blob.name.endswith('.txt'):
-            print(f"Reading multimodal data from gs://{bucket_name}/{blob.name}")
-            try:
-                content = blob.download_as_bytes()
-                # Adjust the reading based on the actual structure of your .txt file
-                # This is a placeholder - you'll need to inspect your .txt file
-                df = pd.read_csv(io.BytesIO(content), sep='\t', header=None) # Example: tab-separated, no header
-                dfs.append(df)
-            except Exception as e:
-                print(f"Error reading multimodal {blob.name}: {e}")
-        elif blob.name.endswith('.csv'): # In case XLSX was converted
-            print(f"Reading multimodal data from gs://{bucket_name}/{blob.name}")
-            try:
-                content = blob.download_as_bytes()
-                df = pd.read_csv(io.BytesIO(content))
-                dfs.append(df)
-            except Exception as e:
-                print(f"Error reading multimodal {blob.name}: {e}")
-    return dfs
+    blob = bucket.blob(blob_name)
+    try:
+        content = blob.download_as_bytes()
+        df = pd.read_csv(io.BytesIO(content), sep=sep, header=header)
+        print(f"✅ Read data from gs://{bucket_name}/{blob_name}")
+        return df
+    except Exception as e:
+        print(f"❌ Error reading {blob_name}: {e}")
+        return None
 
 def preprocess_mta_data(mta_dfs):
     """Preprocesses the list of MTA DataFrames."""
@@ -74,23 +58,33 @@ def preprocess_mta_data(mta_dfs):
 
     return mta_df
 
-def preprocess_multimodal_data(multimodal_dfs):
-    """Preprocesses the list of multimodal DataFrames."""
-    if not multimodal_dfs:
-        print("No multimodal data to preprocess.")
+def preprocess_multimodal_data(bucket_name, prefix):
+    """Preprocesses the multimodal data from GCS (assuming multiple TXT files)."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = bucket.list_blobs(prefix=prefix)
+    all_multimodal_dfs = []
+    for blob in blobs:
+        if blob.name.endswith('.txt'):
+            print(f"Reading and preprocessing multimodal data from gs://{bucket_name}/{blob.name}")
+            df = read_txt_from_gcs(bucket_name, blob.name, sep=',', header='infer') # Adjust separator and header as needed
+            if df is not None:
+                # **Adapt this preprocessing based on the structure of your TXT files**
+                # Example: Assuming columns like 'user_id', 'mode', 'timestamp'
+                if df.shape[1] >= 3:
+                    df.columns = ['user_id', 'mode', 'timestamp'] # Example column names
+                    if 'timestamp' in df.columns:
+                        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+                    if 'mode' in df.columns:
+                        df['mode'] = df['mode'].astype(str).str.lower().str.strip()
+                    all_multimodal_dfs.append(df)
+                else:
+                    print(f"⚠️ Skipping {blob.name} due to insufficient columns.")
+    if all_multimodal_dfs:
+        return pd.concat(all_multimodal_dfs, ignore_index=True)
+    else:
+        print("No valid multimodal data found for preprocessing.")
         return None
-    multimodal_df = pd.concat(multimodal_dfs, ignore_index=True)
-    # **You will need to adapt this part based on the actual structure
-    # of your multimodal .txt or .csv file.**
-    print("⚠️ Warning: Multimodal data preprocessing needs to be implemented based on the actual file structure.")
-    # Example placeholders:
-    if multimodal_df.shape[1] >= 3:
-        multimodal_df.columns = ['user_id', 'mode', 'timestamp'] # Example column names
-        if 'timestamp' in multimodal_df.columns:
-            multimodal_df['timestamp'] = pd.to_datetime(multimodal_df['timestamp'], errors='coerce')
-        if 'mode' in multimodal_df.columns:
-            multimodal_df['mode'] = multimodal_df['mode'].astype(str).str.lower().str.strip()
-    return multimodal_df
 
 def merge_and_engineer_features(mta_df, multimodal_df):
     """Merges MTA and multimodal data and engineers features."""
@@ -126,13 +120,22 @@ def save_processed_data_to_gcs(df, bucket_name, blob_name):
         print(f"No DataFrame to save to GCS for {blob_name}.")
 
 if __name__ == "__main__":
-    # Read data from GCS
-    mta_dataframes = read_data_from_gcs(gcs_bucket_name, gcs_mta_prefix)
-    multimodal_dataframes = read_multimodal_data_from_gcs(gcs_bucket_name, gcs_multimodal_prefix)
+    # Read MTA data from GCS
+    client = storage.Client()
+    bucket = client.bucket(gcs_bucket_name)
+    mta_blobs = bucket.list_blobs(prefix=gcs_mta_prefix)
+    mta_dataframes = []
+    for blob in mta_blobs:
+        if blob.name.endswith('.csv'):
+            df = read_csv_from_gcs(gcs_bucket_name, blob.name)
+            if df is not None:
+                mta_dataframes.append(df)
 
-    # Preprocess data
+    # Preprocess MTA data
     processed_mta_df = preprocess_mta_data(mta_dataframes)
-    processed_multimodal_df = preprocess_multimodal_data(multimodal_dataframes)
+
+    # Preprocess multimodal data from GCS (all TXT files in the archive)
+    processed_multimodal_df = preprocess_multimodal_data(gcs_bucket_name, gcs_multimodal_prefix)
 
     # Merge and engineer features
     if processed_mta_df is not None and processed_multimodal_df is not None:
@@ -141,7 +144,8 @@ if __name__ == "__main__":
     else:
         print("Skipping merge and feature engineering due to missing data.")
 
-    # You can optionally save the preprocessed individual DataFrames to GCS as well
-    # if needed for other steps.
-    # save_processed_data_to_gcs(processed_mta_df, gcs_bucket_name, 'processed/processed_mta_data.csv')
-    # save_processed_data_to_gcs(processed_multimodal_df, gcs_bucket_name, 'processed/processed_multimodal_data.csv')
+    if processed_mta_df is not None:
+        save_processed_data_to_gcs(processed_mta_df, gcs_bucket_name, 'processed/processed_mta_data.csv')
+
+    if processed_multimodal_df is not None:
+        save_processed_data_to_gcs(processed_multimodal_df, gcs_bucket_name, 'processed/processed_multimodal_data.csv')
