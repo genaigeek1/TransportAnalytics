@@ -1,3 +1,4 @@
+# preprocessing/feature_engineering.py
 import pandas as pd
 from google.cloud import storage
 import io
@@ -10,18 +11,18 @@ gcs_mta_prefix = 'raw/mta/'          # Prefix for MTA data
 gcs_multimodal_prefix = 'raw/multimodal/archive/' # Prefix for multimodal archive data
 gcs_processed_blob_name = 'processed/merged_transport_data.csv' # Blob name for final processed data
 
-def read_csv_from_gcs(bucket_name, blob_name):
-    """Reads a single CSV file from GCS into a DataFrame."""
+def read_csv_from_gcs(bucket_name, blob_name, encoding='utf-8'):
+    """Reads a single CSV file from GCS into a DataFrame with specified encoding."""
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
     try:
         content = blob.download_as_bytes()
-        df = pd.read_csv(io.BytesIO(content))
-        print(f"✅ Read data from gs://{bucket_name}/{blob_name}")
+        df = pd.read_csv(io.BytesIO(content), encoding=encoding)
+        print(f"✅ Read data from gs://{bucket_name}/{blob_name} with encoding '{encoding}'")
         return df
     except Exception as e:
-        print(f"❌ Error reading {blob_name}: {e}")
+        print(f"❌ Error reading {blob_name} with encoding '{encoding}': {e}")
         return None
 
 def read_txt_from_gcs(bucket_name, blob_name, sep='\t', header=None):
@@ -67,12 +68,13 @@ def preprocess_multimodal_data(bucket_name, prefix):
     for blob in blobs:
         if blob.name.endswith('.txt'):
             print(f"Reading and preprocessing multimodal data from gs://{bucket_name}/{blob.name}")
-            df = read_txt_from_gcs(bucket_name, blob.name, sep=',', header='infer') # Adjust separator and header as needed
+            # **ADJUST THE SEPARATOR AND HEADER BASED ON YOUR TXT FILES**
+            df = read_txt_from_gcs(bucket_name, blob.name, sep=',', header='infer')
             if df is not None:
-                # **Adapt this preprocessing based on the structure of your TXT files**
+                # **ADAPT THIS PREPROCESSING BASED ON THE STRUCTURE OF YOUR TXT FILES**
                 # Example: Assuming columns like 'user_id', 'mode', 'timestamp'
                 if df.shape[1] >= 3:
-                    df.columns = ['user_id', 'mode', 'timestamp'] # Example column names
+                    df.columns = ['user_id', 'mode', 'timestamp']
                     if 'timestamp' in df.columns:
                         df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
                     if 'mode' in df.columns:
@@ -92,8 +94,8 @@ def merge_and_engineer_features(mta_df, multimodal_df):
         print("Cannot merge data as one of the DataFrames is missing.")
         return None
 
-    # **This merge logic will heavily depend on how you can relate
-    # records in the MTA data to records in the multimodal data.**
+    # **THIS MERGE LOGIC WILL HEAVILY DEPEND ON HOW YOU CAN RELATE
+    # RECORDS IN THE MTA DATA TO RECORDS IN THE MULTIMODAL DATA.**
     # This is a placeholder and likely needs significant adjustment.
     print("⚠️ Warning: Merge and feature engineering logic needs to be implemented based on your data relationship.")
     # Example placeholder merge (very likely incorrect for your actual data):
@@ -127,7 +129,10 @@ if __name__ == "__main__":
     mta_dataframes = []
     for blob in mta_blobs:
         if blob.name.endswith('.csv'):
-            df = read_csv_from_gcs(gcs_bucket_name, blob.name)
+            encoding = 'utf-8'
+            if 'MTA_Subway_Hourly_Ridership' in blob.name:
+                encoding = 'latin-1'  # Or try 'iso-8859-1', 'windows-1252'
+            df = read_csv_from_gcs(gcs_bucket_name, blob.name, encoding=encoding)
             if df is not None:
                 mta_dataframes.append(df)
 

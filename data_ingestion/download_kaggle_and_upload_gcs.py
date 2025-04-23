@@ -1,3 +1,4 @@
+# download_kaggle_and_upload_gcs.py
 import os
 from kaggle.api.kaggle_api_extended import KaggleApi
 from google.cloud import storage
@@ -52,7 +53,7 @@ def process_and_upload_mta(kaggle_slug, gcs_prefix):
         print(f"❌ An unexpected error occurred while processing {kaggle_slug}: {e}")
 
 def process_and_upload_multimodal_subdir(kaggle_slug, gcs_prefix, target_subdir):
-    """Downloads all files from a specific subdirectory in Kaggle and uploads them to GCS."""
+    """Downloads all files from a specific subdirectory in Kaggle and uploads them to GCS using streaming."""
     print(f"\nProcessing multimodal subdirectory '{target_subdir}' from https://www.kaggle.com/{kaggle_slug}")
     try:
         dataset_files = api.dataset_list_files(kaggle_slug).files
@@ -60,13 +61,24 @@ def process_and_upload_multimodal_subdir(kaggle_slug, gcs_prefix, target_subdir)
             for file_info in dataset_files:
                 if file_info.name.startswith(target_subdir):
                     file_name_on_kaggle = file_info.name
-                    # Construct the GCS blob name, preserving the subdirectory structure
                     gcs_blob_name = posixpath.join(gcs_prefix, os.path.basename(file_name_on_kaggle))
                     download_url = f"https://www.kaggle.com/api/v1/datasets/download/{kaggle_slug}/{file_name_on_kaggle}"
-                    response = requests.get(download_url, headers={'Authorization': f'Bearer {os.environ['KAGGLE_KEY']}'}, stream=True)
-                    response.raise_for_status()
-                    file_content_stream = BytesIO(response.content)
-                    upload_to_gcs(gcs_bucket_name, gcs_blob_name, file_content_stream)
+                    try:
+                        response = requests.get(download_url, headers={'Authorization': f'Bearer {os.environ['KAGGLE_KEY']}'}, stream=True)
+                        response.raise_for_status()
+
+                        client = storage.Client()
+                        bucket = client.bucket(gcs_bucket_name)
+                        blob = bucket.blob(gcs_blob_name)
+
+                        print(f"📤 Uploading {file_name_on_kaggle} to gs://{gcs_bucket_name}/{gcs_blob_name}")
+                        blob.upload_from_file(response.raw)
+                        print(f"✅ Uploaded {file_name_on_kaggle} to GCS")
+
+                    except requests.exceptions.HTTPError as e:
+                        print(f"❌ Error downloading {file_name_on_kaggle} from {kaggle_slug}: {e}")
+                    except Exception as e:
+                        print(f"❌ An unexpected error occurred during upload of {file_name_on_kaggle}: {e}")
         else:
             print(f"⚠️ Could not retrieve file list for {kaggle_slug}")
     except requests.exceptions.HTTPError as e:
