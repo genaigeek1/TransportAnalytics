@@ -1,154 +1,147 @@
-
 import pandas as pd
-import json
-from google.cloud import storage, bigquery
+from google.cloud import storage
+import io
 import os
 from datetime import datetime
-import hashlib
 
-# Load config
-with open('config/gcp_config.json') as f:
-    gcp_config = json.load(f)
+# Google Cloud Storage details
+gcs_bucket_name = 'mta-ridership-data'  # Replace with your GCS bucket name
+gcs_mta_prefix = 'raw/mta/'          # Prefix for MTA data
+gcs_multimodal_prefix = 'raw/multimodal/' # Prefix for multimodal data
+gcs_processed_blob_name = 'processed/merged_transport_data.csv' # Blob name for final processed data
 
-project_id = gcp_config["project_id"]
-bucket_name = gcp_config["bucket"]
-gcs_input_path = gcp_config["gcs_input_path"]
-bq_dataset = gcp_config["bq_dataset"]
-bq_table = gcp_config["bq_output_table"]
+def read_data_from_gcs(bucket_name, prefix):
+    """Reads all CSV files from a given GCS prefix into a list of DataFrames."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = bucket.list_blobs(prefix=prefix)
+    dfs = []
+    for blob in blobs:
+        if blob.name.endswith('.csv'):
+            print(f"Reading data from gs://{bucket_name}/{blob.name}")
+            try:
+                content = blob.download_as_bytes()
+                df = pd.read_csv(io.BytesIO(content))
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error reading {blob.name}: {e}")
+    return dfs
 
-# Setup GCS + BQ client
-storage_client = storage.Client(project=project_id)
-bucket = storage_client.bucket(bucket_name)
-bq_client = bigquery.Client(project=project_id)
+def read_multimodal_data_from_gcs(bucket_name, prefix):
+    """Reads multimodal data (assuming it might be in a single .txt file) from GCS."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = bucket.list_blobs(prefix=prefix)
+    dfs = []
+    for blob in blobs:
+        if blob.name.endswith('.txt'):
+            print(f"Reading multimodal data from gs://{bucket_name}/{blob.name}")
+            try:
+                content = blob.download_as_bytes()
+                # Adjust the reading based on the actual structure of your .txt file
+                # This is a placeholder - you'll need to inspect your .txt file
+                df = pd.read_csv(io.BytesIO(content), sep='\t', header=None) # Example: tab-separated, no header
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error reading multimodal {blob.name}: {e}")
+        elif blob.name.endswith('.csv'): # In case XLSX was converted
+            print(f"Reading multimodal data from gs://{bucket_name}/{blob.name}")
+            try:
+                content = blob.download_as_bytes()
+                df = pd.read_csv(io.BytesIO(content))
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error reading multimodal {blob.name}: {e}")
+    return dfs
 
-# Helper: get latest blob for a dataset type
-print("\n🔍 Searching for latest GCS files...")
+def preprocess_mta_data(mta_dfs):
+    """Preprocesses the list of MTA DataFrames."""
+    if not mta_dfs:
+        print("No MTA data to preprocess.")
+        return None
+    mta_df = pd.concat(mta_dfs, ignore_index=True)
+    # Convert 'DATE' and 'TIME' to a single datetime column
+    if 'DATE' in mta_df.columns and 'TIME' in mta_df.columns:
+        mta_df['DATETIME'] = pd.to_datetime(mta_df['DATE'] + ' ' + mta_df['TIME'], errors='coerce')
+        mta_df = mta_df.drop(columns=['DATE', 'TIME'])
+    elif 'DATETIME' in mta_df.columns:
+        mta_df['DATETIME'] = pd.to_datetime(mta_df['DATETIME'], errors='coerce')
 
-def get_latest_blob(prefix):
-    blobs = list(bucket.list_blobs(prefix="raw/"))
-    csvs = [b for b in blobs if b.name.startswith(f"raw/{prefix}_") and b.name.endswith(".csv")]
-    txts = [b for b in blobs if b.name.startswith(f"raw/{prefix}_") and b.name.endswith(".txt")]
-    if csvs:
-        return sorted(csvs, key=lambda b: b.updated, reverse=True)[0]
-    elif txts:
-        return sorted(txts, key=lambda b: b.updated, reverse=True)[0]
+    # Basic filtering (you might need more sophisticated filtering)
+    numeric_cols = mta_df.select_dtypes(include=['number']).columns
+    for col in numeric_cols:
+        mta_df = mta_df[(mta_df[col] >= 0) & (mta_df[col] < 1000000)] # Basic outlier removal
+
+    return mta_df
+
+def preprocess_multimodal_data(multimodal_dfs):
+    """Preprocesses the list of multimodal DataFrames."""
+    if not multimodal_dfs:
+        print("No multimodal data to preprocess.")
+        return None
+    multimodal_df = pd.concat(multimodal_dfs, ignore_index=True)
+    # **You will need to adapt this part based on the actual structure
+    # of your multimodal .txt or .csv file.**
+    print("⚠️ Warning: Multimodal data preprocessing needs to be implemented based on the actual file structure.")
+    # Example placeholders:
+    if multimodal_df.shape[1] >= 3:
+        multimodal_df.columns = ['user_id', 'mode', 'timestamp'] # Example column names
+        if 'timestamp' in multimodal_df.columns:
+            multimodal_df['timestamp'] = pd.to_datetime(multimodal_df['timestamp'], errors='coerce')
+        if 'mode' in multimodal_df.columns:
+            multimodal_df['mode'] = multimodal_df['mode'].astype(str).str.lower().str.strip()
+    return multimodal_df
+
+def merge_and_engineer_features(mta_df, multimodal_df):
+    """Merges MTA and multimodal data and engineers features."""
+    if mta_df is None or multimodal_df is None:
+        print("Cannot merge data as one of the DataFrames is missing.")
+        return None
+
+    # **This merge logic will heavily depend on how you can relate
+    # records in the MTA data to records in the multimodal data.**
+    # This is a placeholder and likely needs significant adjustment.
+    print("⚠️ Warning: Merge and feature engineering logic needs to be implemented based on your data relationship.")
+    # Example placeholder merge (very likely incorrect for your actual data):
+    merged_df = pd.merge(mta_df, multimodal_df, left_index=True, right_index=True, how='inner')
+
+    if 'DATETIME' in merged_df.columns:
+        merged_df['hour'] = merged_df['DATETIME'].dt.hour
+        merged_df['day_of_week'] = merged_df['DATETIME'].dt.dayofweek # Monday=0, Sunday=6
+        merged_df['month'] = merged_df['DATETIME'].dt.month
+
+    return merged_df
+
+def save_processed_data_to_gcs(df, bucket_name, blob_name):
+    """Saves the processed DataFrame directly to Google Cloud Storage as CSV."""
+    if df is not None:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        buffer = io.StringIO()
+        df.to_csv(buffer, index=False)
+        blob.upload_from_string(buffer.getvalue(), content_type='text/csv')
+        print(f"✅ Saved processed data to gs://{bucket_name}/{blob_name}")
     else:
-        raise FileNotFoundError(f"No GCS files for raw/{prefix}_*.csv or .txt")
+        print(f"No DataFrame to save to GCS for {blob_name}.")
 
-# Download MTA and Mode files
-try:
-    latest_mta_blob = get_latest_blob("mta")
-except Exception as e:
-    print(f"❌ Failed to find MTA raw file in GCS: {str(e)}"); exit(1)
-try:
-    latest_mode_blob = get_latest_blob("mode")
-except Exception as e:
-    print(f"❌ Failed to find Mode Choice raw file in GCS: {str(e)}"); exit(1)
+if __name__ == "__main__":
+    # Read data from GCS
+    mta_dataframes = read_data_from_gcs(gcs_bucket_name, gcs_mta_prefix)
+    multimodal_dataframes = read_multimodal_data_from_gcs(gcs_bucket_name, gcs_multimodal_prefix)
 
-local_mta_path = ""
-local_mode_path = ""
+    # Preprocess data
+    processed_mta_df = preprocess_mta_data(mta_dataframes)
+    processed_multimodal_df = preprocess_multimodal_data(multimodal_dataframes)
 
-print("⬇️  Downloading MTA data...")
-latest_mta_blob.download_to_filename(local_mta_path)
-print("⬇️  Downloading Mode Choice data...")
-latest_mode_blob.download_to_filename(local_mode_path)
+    # Merge and engineer features
+    if processed_mta_df is not None and processed_multimodal_df is not None:
+        final_df = merge_and_engineer_features(processed_mta_df, processed_multimodal_df)
+        save_processed_data_to_gcs(final_df, gcs_bucket_name, gcs_processed_blob_name)
+    else:
+        print("Skipping merge and feature engineering due to missing data.")
 
-print(f"✅ Downloaded: {latest_mta_blob.name}")
-print(f"✅ Downloaded: {latest_mode_blob.name}")
-
-# Compute combined hash of both files to detect duplication
-def file_md5(path):
-    with open(path, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
-
-mta_hash = file_md5(local_mta_path)
-mode_hash = file_md5(local_mode_path)
-combined_hash = hashlib.md5((mta_hash + mode_hash).encode()).hexdigest()
-
-hash_blob = bucket.blob("hashes/last_feature_merge.hash")
-
-# Check if hash already processed
-if hash_blob.exists() and hash_blob.download_as_text().strip() == combined_hash:
-    print("⏭️  Same input data as last run. Skipping feature merge and upload.")
-    exit(0)
-
-# Load datasets
-print("📊 Reading MTA data into DataFrame...")
-try:
-    mta_df = pd.read_csv(local_mta_path)
-except Exception as e:
-    print(f"❌ Failed to read MTA data: {str(e)}"); exit(1)
-print("📊 Reading Mode Choice data into DataFrame...")
-try:
-    mode_df = pd.read_csv(local_mode_path)
-except Exception as e:
-    print(f"❌ Failed to read Mode Choice data: {str(e)}"); exit(1)
-
-# Preprocess
-if 'date' in mta_df.columns:
-    mta_df['date'] = pd.to_datetime(mta_df['date'])
-mta_df.fillna(0, inplace=True)
-
-mode_df.fillna(method='ffill', inplace=True)
-if 'weather' in mode_df.columns:
-    mode_df['weather_encoded'] = mode_df['weather'].astype('category').cat.codes
-if 'mode' in mode_df.columns:
-    mode_df['mode_encoded'] = mode_df['mode'].astype('category').cat.codes
-
-# Merge
-if 'date' in mta_df.columns and 'date' in mode_df.columns:
-    print("🔗 Merging datasets on date...")
-try:
-    merged_df = pd.merge(mta_df, mode_df, on='date', how='inner')
-except Exception as e:
-    print(f"❌ Failed to merge datasets on 'date': {str(e)}"); exit(1)
-else:
-    merged_df = pd.concat([mta_df, mode_df], axis=1)
-
-# Feature engineering
-if 'fare' in merged_df.columns and 'duration' in merged_df.columns:
-    merged_df['fare_per_minute'] = merged_df['fare'] / (merged_df['duration'] + 1)
-
-# Save + upload merged file
-output_local = "/tmp/merged_feature_data.csv"
-print("💾 Saving merged dataset locally...")
-merged_df.to_csv(output_local, index=False)
-print(f"☁️  Uploading merged dataset to GCS at: gs://{bucket_name}/{gcs_input_path}")
-try:
-    bucket.blob(gcs_input_path).upload_from_filename(output_local)
-except Exception as e:
-    print(f"❌ Failed to upload merged dataset to GCS: {str(e)}"); exit(1)
-print(f"✅ Uploaded merged data to: gs://{bucket_name}/{gcs_input_path}")
-
-# Save current hash
-print("💾 Saving input hash to GCS to track changes...")
-hash_blob.upload_from_string(combined_hash)
-
-# Validate or create BQ dataset
-dataset_ref = bigquery.DatasetReference(project_id, bq_dataset)
-try:
-    bq_client.get_dataset(dataset_ref)
-except:
-    print(f"⚠️ BigQuery dataset {bq_dataset} not found. Creating...")
-    print("📁 Creating BigQuery dataset...")
-bq_client.create_dataset(bigquery.Dataset(dataset_ref))
-    print(f"✅ Created BigQuery dataset: {bq_dataset}")
-
-# Upload merged data to BigQuery
-table_ref = f"{project_id}.{bq_dataset}.{bq_table}"
-job_config = bigquery.LoadJobConfig(
-    autodetect=True,
-    write_disposition="WRITE_TRUNCATE",
-    source_format=bigquery.SourceFormat.CSV,
-    skip_leading_rows=1
-)
-
-with open(output_local, "rb") as source_file:
-    print("📤 Uploading data to BigQuery...")
-load_job = bq_client.load_table_from_file(source_file, table_ref, job_config=job_config)
-    try:
-    load_job.result()
-except Exception as e:
-    print(f"❌ BigQuery load job failed: {str(e)}"); exit(1)
-
-print(f"✅ Uploaded to BigQuery table: {table_ref}")
+    # You can optionally save the preprocessed individual DataFrames to GCS as well
+    # if needed for other steps.
+    # save_processed_data_to_gcs(processed_mta_df, gcs_bucket_name, 'processed/processed_mta_data.csv')
+    # save_processed_data_to_gcs(processed_multimodal_df, gcs_bucket_name, 'processed/processed_multimodal_data.csv')
