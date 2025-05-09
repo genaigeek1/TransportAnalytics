@@ -1,0 +1,55 @@
+# GenAI Ops Services
+## GenAI Ops Maturity Mapping
+- Greenfield / Early Stage
+  - Individual Offers / Small Package
+    - Characteristics: Support in specific areas / limited budget
+    - Included Offers:
+      - GenAI Continuous Tuning & Feedback
+      - Productionize GenAI [S]
+      - GenAI Security Accelerator
+      - GenAI MVP Launchpad
+      - GenAI Model Optimization
+- Maturing / Production Stage
+  - Medium Package
+    - Characteristics: Deploy to production (includes Ops, evaluation, monitoring)
+    - Included Offers:
+      - Productionize GenAI [L]
+      - GenAI Continuous Tuning & Feedback
+      - GenAI Model Optimization
+- Mature / Optimization Stage
+  - Large Package
+    - Characteristics: E2E support from POC/prototype to production
+    - Included Offers:
+      - GenAI Continuous Tuning & Feedback
+      - Productionize GenAI
+      - GenAI Model Optimization
+## GenAI Ops - Planning
+- Integrate with Other Apps & Tools
+- Security & Compliance
+- Build Production Pipeline
+- Set Up for Quality Tracking
+- Ensure Continuous Tuning & Feedback
+- Training & Onboarding
+- Visualization
+- Get Ongoing Support
+- Monitor App Performance
+- Optimize Your Solution
+## GenAI Solution Launch Roadmap
+- Step 1: BUILD
+  - Jumpstart Proof of Concept
+  - GenAI Solutions
+  - Migration
+  - Custom AI
+- Step 2: ENHANCE
+  - MVP Deployment
+  - Continuous Tuning & Feedback
+  - Model Optimization
+- Step 3: PRODUCTIONIZE
+  - Productionizing GenAI
+  - GenAI Ops
+  - Testing and Evaluation
+  - Monitoring and Management
+- Step 4: EVOLVE
+  - Model Optimization
+  - Extended Care
+  - FinOps for GenAI
